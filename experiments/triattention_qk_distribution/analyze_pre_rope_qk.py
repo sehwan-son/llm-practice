@@ -1,0 +1,127 @@
+import argparse
+
+from qk_rope_analysis.analysis import DEFAULT_PROMPT, DEFAULT_SYSTEM_PROMPT
+from qk_rope_analysis.workflow import (
+    analyze_captured_tensors,
+    export_analysis_artifacts,
+    prepare_run_context,
+    print_analysis_report,
+)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Capture pre-RoPE Q/K tensors and analyze RoPE pairs as complex-plane point clouds."
+    )
+    parser.add_argument("--model", required=True, help="Hugging Face model id or local model path.")
+    parser.add_argument("--prompt", default=DEFAULT_PROMPT, help="Prompt text used for the forward pass.")
+    parser.add_argument(
+        "--system-prompt",
+        default=DEFAULT_SYSTEM_PROMPT,
+        help="System prompt used when the tokenizer has a chat template.",
+    )
+    parser.add_argument("--device", default="auto", help='Device to use: "auto", "cuda", "cuda:0", or "cpu".')
+    parser.add_argument(
+        "--dtype",
+        default="auto",
+        choices=["auto", "float16", "float32", "bfloat16"],
+        help="Torch dtype used when loading the model.",
+    )
+    parser.add_argument(
+        "--tensor",
+        default="q",
+        choices=["q", "k", "both"],
+        help="Which pre-RoPE tensor to analyze.",
+    )
+    parser.add_argument(
+        "--layers",
+        default="0",
+        help='Comma-separated layer indices to capture, or "all".',
+    )
+    parser.add_argument(
+        "--heads",
+        default="0",
+        help='Comma-separated head indices to analyze, or "all".',
+    )
+    parser.add_argument(
+        "--max-length",
+        type=int,
+        default=512,
+        help="Maximum prompt length after tokenization. Longer prompts are truncated.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Directory where summary artifacts will be written.",
+    )
+    parser.add_argument(
+        "--trust-remote-code",
+        action="store_true",
+        help="Pass trust_remote_code=True when loading tokenizer/model.",
+    )
+    parser.add_argument(
+        "--no-chat-template",
+        action="store_true",
+        help="Use the prompt as-is even if the tokenizer exposes a chat template.",
+    )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Create complex-plane plots for selected layers and heads.",
+    )
+    parser.add_argument(
+        "--plot-type",
+        default="hist2d",
+        choices=["hist2d", "scatter"],
+        help="Plot each pair using a 2D histogram or sampled scatter plot.",
+    )
+    parser.add_argument(
+        "--plot-bins",
+        type=int,
+        default=80,
+        help="Number of bins per axis when plot-type=hist2d.",
+    )
+    parser.add_argument(
+        "--plot-max-points",
+        type=int,
+        default=2000,
+        help="Maximum number of points per pair to draw when plot-type=scatter.",
+    )
+    parser.add_argument(
+        "--plot-radius-quantile",
+        type=float,
+        default=0.995,
+        help="Axis limit is chosen from this quantile of absolute coordinates.",
+    )
+    parser.add_argument(
+        "--save-complex-tensors",
+        action="store_true",
+        help="Save complex-pair tensors to complex_pairs.pt.",
+    )
+    parser.add_argument(
+        "--plot-summary",
+        action="store_true",
+        help="Create layer/head summary plots from pre-RoPE band statistics.",
+    )
+    parser.add_argument(
+        "--export-csv",
+        action="store_true",
+        help="Export flat per-head and per-layer metrics as CSV files.",
+    )
+    return parser
+
+
+def parse_args() -> argparse.Namespace:
+    return build_parser().parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    context = prepare_run_context(args)
+    artifacts = analyze_captured_tensors(args, context)
+    export_analysis_artifacts(args, context, artifacts)
+    print_analysis_report(output_dir=context.output_dir, tensor_names=context.tensor_names, summary=artifacts.summary)
+
+
+if __name__ == "__main__":
+    main()
