@@ -24,7 +24,15 @@ from .analysis import (
     write_csv,
     write_json,
 )
-from .plotting import maybe_plot_complex_pairs, maybe_plot_summary
+from .plotting import maybe_plot_complex_pairs, maybe_plot_qk_dominant_bands, maybe_plot_summary
+
+
+def should_plot_figure2a(args) -> bool:
+    return bool(args.plot and args.plot_mode in {"figure2a", "both"})
+
+
+def should_plot_pair_grid(args) -> bool:
+    return bool(args.plot and args.plot_mode in {"pair-grid", "both"})
 
 
 @dataclass
@@ -96,6 +104,9 @@ def prepare_run_context(args) -> RunContext:
         "tokens": tokenizer.convert_ids_to_tokens(model_inputs["input_ids"][0].detach().cpu().tolist()),
         "pairing_mode": PAIRING_MODE,
         "pairing_note": PAIRING_NOTE,
+        "plot_mode": args.plot_mode if args.plot else None,
+        "plot_top_bands": args.plot_top_bands if args.plot else None,
+        "qk_dominant_band_score": "mean(|Q_band| * |K_band|) across batch and sequence positions",
     }
 
     return RunContext(
@@ -114,31 +125,40 @@ def analyze_captured_tensors(args, context: RunContext) -> AnalysisArtifacts:
     summary: dict[str, Any] = {}
     complex_tensor_store: dict[str, dict[int, torch.Tensor]] = {}
     plot_tasks: list[PlotTask] = []
+    required_tensor_names = list(context.tensor_names)
+    if should_plot_figure2a(args):
+        required_tensor_names = sorted(set(required_tensor_names) | {"q", "k"})
 
     for tensor_name in context.tensor_names:
         summary[tensor_name] = {}
+
+    for tensor_name in required_tensor_names:
         complex_tensor_store[tensor_name] = {}
         for layer_idx in context.selected_layers:
             raw_tensor = context.captured[tensor_name][layer_idx]
             complex_pairs = to_rope_complex_pairs(raw_tensor)
-            selected_heads = parse_index_selection(args.heads, complex_pairs.shape[2], label=f"{tensor_name} head")
             layer_inv_freq = get_layer_rope_inv_freq(context.layers[layer_idx], num_pairs=complex_pairs.shape[-1])
+            selected_heads = None
+            needs_tensor_head_selection = tensor_name in context.tensor_names
+            if needs_tensor_head_selection:
+                selected_heads = parse_index_selection(args.heads, complex_pairs.shape[2], label=f"{tensor_name} head")
 
-            summary[tensor_name][str(layer_idx)] = summarize_complex_pairs(
-                raw_tensor=raw_tensor,
-                complex_pairs=complex_pairs,
-                selected_heads=selected_heads,
-                inv_freq=layer_inv_freq,
-            )
+            if tensor_name in context.tensor_names:
+                summary[tensor_name][str(layer_idx)] = summarize_complex_pairs(
+                    raw_tensor=raw_tensor,
+                    complex_pairs=complex_pairs,
+                    selected_heads=selected_heads or [],
+                    inv_freq=layer_inv_freq,
+                )
             complex_tensor_store[tensor_name][layer_idx] = complex_pairs
 
-            if args.plot:
+            if should_plot_pair_grid(args) and tensor_name in context.tensor_names:
                 plot_tasks.append(
                     PlotTask(
                         complex_pairs=complex_pairs,
                         tensor_name=tensor_name,
                         layer_idx=layer_idx,
-                        selected_heads=selected_heads,
+                        selected_heads=selected_heads or [],
                     )
                 )
 
@@ -164,7 +184,27 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
     if args.plot_summary:
         maybe_plot_summary(summary=artifacts.summary, tensor_names=context.tensor_names, output_dir=context.output_dir)
 
-    if args.plot:
+    if should_plot_figure2a(args):
+        for layer_idx in context.selected_layers:
+            q_complex_pairs = artifacts.complex_tensor_store["q"][layer_idx]
+            k_complex_pairs = artifacts.complex_tensor_store["k"][layer_idx]
+            selected_query_heads = parse_index_selection(
+                args.heads,
+                q_complex_pairs.shape[2],
+                label="query head",
+            )
+            maybe_plot_qk_dominant_bands(
+                q_complex_pairs=q_complex_pairs,
+                k_complex_pairs=k_complex_pairs,
+                layer_idx=layer_idx,
+                selected_query_heads=selected_query_heads,
+                output_dir=context.output_dir,
+                plot_max_points=args.plot_max_points,
+                plot_radius_quantile=args.plot_radius_quantile,
+                top_bands=args.plot_top_bands,
+            )
+
+    if should_plot_pair_grid(args):
         for task in artifacts.plot_tasks:
             maybe_plot_complex_pairs(
                 complex_pairs=task.complex_pairs,

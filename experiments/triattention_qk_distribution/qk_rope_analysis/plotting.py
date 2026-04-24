@@ -4,7 +4,13 @@ from typing import Any
 
 import torch
 
-from .analysis import PAIR_DEFINITION, flatten_head_metric_rows, summarize_layer_metric_rows
+from .analysis import (
+    PAIR_DEFINITION,
+    flatten_head_metric_rows,
+    mean_resultant_length,
+    select_dominant_qk_bands,
+    summarize_layer_metric_rows,
+)
 
 
 SUMMARY_METRIC_SPECS = [
@@ -219,6 +225,91 @@ def maybe_sample_points(values: torch.Tensor, plot_max_points: int) -> tuple[Any
         perm = torch.randperm(values.numel())[:plot_max_points]
         values = values[perm]
     return values.real.cpu().numpy(), values.imag.cpu().numpy()
+
+
+def compute_joint_plot_limit(value_sets: list[torch.Tensor], plot_radius_quantile: float) -> float:
+    coordinates = []
+    for values in value_sets:
+        coordinates.append(values.real.reshape(-1).abs())
+        coordinates.append(values.imag.reshape(-1).abs())
+    limit_tensor = torch.cat(coordinates)
+    limit = float(torch.quantile(limit_tensor, plot_radius_quantile).item())
+    return max(limit, 1e-4)
+
+
+def maybe_plot_qk_dominant_bands(
+    q_complex_pairs: torch.Tensor,
+    k_complex_pairs: torch.Tensor,
+    layer_idx: int,
+    selected_query_heads: list[int],
+    output_dir: Path,
+    plot_max_points: int,
+    plot_radius_quantile: float,
+    top_bands: int,
+) -> None:
+    plt = load_matplotlib_pyplot()
+
+    for query_head_idx in selected_query_heads:
+        band_indices, band_scores, key_head_idx = select_dominant_qk_bands(
+            q_complex_pairs=q_complex_pairs,
+            k_complex_pairs=k_complex_pairs,
+            query_head_idx=query_head_idx,
+            top_k=top_bands,
+        )
+
+        fig, axes = plt.subplots(
+            nrows=1,
+            ncols=len(band_indices),
+            figsize=(4.5 * len(band_indices), 4.2),
+            squeeze=False,
+        )
+        axes_flat = axes.reshape(-1)
+
+        for ax, band_idx in zip(axes_flat, band_indices, strict=True):
+            q_values = q_complex_pairs[:, :, query_head_idx, band_idx].reshape(-1).to(torch.complex64)
+            k_values = k_complex_pairs[:, :, key_head_idx, band_idx].reshape(-1).to(torch.complex64)
+            limit = compute_joint_plot_limit(
+                value_sets=[q_values, k_values],
+                plot_radius_quantile=plot_radius_quantile,
+            )
+
+            q_real, q_imag = maybe_sample_points(values=q_values, plot_max_points=plot_max_points)
+            k_real, k_imag = maybe_sample_points(values=k_values, plot_max_points=plot_max_points)
+            ax.scatter(q_real, q_imag, s=7, alpha=0.35, linewidths=0, color="tab:blue", label="Q")
+            ax.scatter(k_real, k_imag, s=7, alpha=0.35, linewidths=0, color="tab:orange", label="K")
+
+            q_center = q_values.mean()
+            k_center = k_values.mean()
+            ax.scatter([q_center.real.item()], [q_center.imag.item()], c="tab:blue", s=30, marker="x")
+            ax.scatter([k_center.real.item()], [k_center.imag.item()], c="tab:orange", s=30, marker="x")
+
+            ax.text(
+                0.98,
+                0.96,
+                f"R_Q={mean_resultant_length(q_values):.2f}\nR_K={mean_resultant_length(k_values):.2f}",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+            )
+            ax.set_xlim(-limit, limit)
+            ax.set_ylim(-limit, limit)
+            ax.set_aspect("equal")
+            ax.set_xlabel("Re")
+            ax.set_ylabel("Im")
+            ax.set_title(f"band {band_idx} score={band_scores[band_idx].item():.3g}")
+            ax.grid(alpha=0.2)
+            ax.legend(loc="lower left", frameon=False)
+
+        fig.suptitle(
+            f"Pre-RoPE Q/K dominant band, layer {layer_idx}, "
+            f"query head {query_head_idx}, key head {key_head_idx}"
+        )
+        fig.tight_layout()
+        fig.savefig(
+            output_dir / f"qk_layer{layer_idx}_qhead{query_head_idx}_kvhead{key_head_idx}_figure2a.png",
+            dpi=180,
+        )
+        plt.close(fig)
 
 
 def maybe_plot_complex_pairs(

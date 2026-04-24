@@ -29,9 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--tensor",
-        default="q",
+        default="both",
         choices=["q", "k", "both"],
-        help="Which pre-RoPE tensor to analyze.",
+        help="Which pre-RoPE tensor to summarize/export. Figure2A plots always use both captured Q and K.",
     )
     parser.add_argument(
         "--layers",
@@ -70,10 +70,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Create complex-plane plots for selected layers and heads.",
     )
     parser.add_argument(
+        "--plot-mode",
+        default="figure2a",
+        choices=["figure2a", "pair-grid", "both"],
+        help=(
+            "Plot mode. figure2a overlays pre-RoPE Q/K at each head's dominant band; "
+            "pair-grid keeps the older per-tensor all-pair grids."
+        ),
+    )
+    parser.add_argument(
         "--plot-type",
         default="hist2d",
         choices=["hist2d", "scatter"],
-        help="Plot each pair using a 2D histogram or sampled scatter plot.",
+        help="For plot-mode=pair-grid, plot each pair using a 2D histogram or sampled scatter plot.",
     )
     parser.add_argument(
         "--plot-bins",
@@ -85,7 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--plot-max-points",
         type=int,
         default=2000,
-        help="Maximum number of points per pair to draw when plot-type=scatter.",
+        help="Maximum number of points per cloud to draw in scatter plots.",
+    )
+    parser.add_argument(
+        "--plot-top-bands",
+        type=int,
+        default=1,
+        help="Number of dominant Q/K RoPE bands to show when plot-mode=figure2a.",
     )
     parser.add_argument(
         "--plot-radius-quantile",

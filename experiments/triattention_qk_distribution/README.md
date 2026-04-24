@@ -1,12 +1,13 @@
 # Triattention Q/K Distribution
 
 Qwen-style attention module에서 pre-RoPE `Q`/`K` 텐서를 캡처하고, `rotate_half` 기준의 실제 RoPE pair `(i, i + head_dim/2)`를 복소평면 점구름으로 해석하는 실험입니다.
+기본 `--plot`은 TriAttention 논문 Figure 2(A)처럼 각 layer/query head의 dominant frequency band에서 pre-RoPE `Q`와 `K`를 같은 복소평면에 겹쳐 그립니다.
 
 이 폴더는 세 가지 목적을 갖습니다.
 
 1. 특정 layer/head의 pre-RoPE `Q`/`K`를 캡처한다.
 2. pair별 에너지 분포와 복소 점구름 통계를 계산한다.
-3. heatmap, layer trend, complex pair plot으로 결과를 해석한다.
+3. heatmap, layer trend, Figure 2(A)-style Q/K complex plot으로 결과를 해석한다.
 
 ## 폴더 구조
 
@@ -65,6 +66,7 @@ python experiments/triattention_qk_distribution/analyze_pre_rope_qk.py \
   --tensor both \
   --layers 0 \
   --heads 0 \
+  --plot \
   --plot-summary \
   --export-csv
 ```
@@ -96,10 +98,12 @@ python experiments/triattention_qk_distribution/plot_pre_rope_summary.py \
 ## 주요 옵션
 
 - `--model`: Hugging Face model id 또는 로컬 모델 경로
-- `--tensor {q,k,both}`: 분석 대상 텐서
+- `--tensor {q,k,both}`: 요약/CSV로 분석할 텐서. Figure 2(A) 스타일 plot은 캡처된 Q/K를 함께 사용
 - `--layers 0,1,2` 또는 `--layers all`: 캡처할 레이어
 - `--heads 0,5,10` 또는 `--heads all`: 분석할 헤드
-- `--plot`: head별 complex pair grid와 centroid plot 생성
+- `--plot`: 논문 Figure 2(A) 스타일로 dominant band의 pre-RoPE Q/K complex cloud 생성
+- `--plot-mode {figure2a,pair-grid,both}`: 기본 `figure2a`; 기존 pair별 grid가 필요하면 `pair-grid` 또는 `both`
+- `--plot-top-bands N`: Figure 2(A) 스타일 plot에서 표시할 dominant Q/K band 수. 기본값은 논문 그림과 같은 `1`
 - `--plot-summary`: layer/head heatmap과 layer trend plot 생성
 - `--export-csv`: `head_metrics.csv`, `layer_metrics.csv` 생성
 - `--save-complex-tensors`: `complex_pairs.pt` 저장
@@ -118,9 +122,13 @@ python experiments/triattention_qk_distribution/plot_pre_rope_summary.py \
 - `head_metrics.csv`: head 단위 평탄화 지표
 - `layer_metrics.csv`: layer 단위 집계 지표
 - `summary_plots/*.png`: heatmap, layer trend
-- `q_layer*_head*_pair_grid.png`, `k_layer*_head*_pair_grid.png`: pair별 complex cloud
-- `*_centroids.png`: pair centroid 위치
+- `qk_layer*_qhead*_kvhead*_figure2a.png`: dominant band의 pre-RoPE Q/K complex cloud
+- `q_layer*_head*_pair_grid.png`, `k_layer*_head*_pair_grid.png`: `--plot-mode pair-grid` 또는 `both` 사용 시 pair별 complex cloud
+- `*_centroids.png`: `--plot-mode pair-grid` 또는 `both` 사용 시 pair centroid 위치
 - `complex_pairs.pt`: 저장 옵션 사용 시 complex tensor dump
+
+Figure 2(A) 스타일 plot의 `R_Q`, `R_K`는 Mean Resultant Length입니다.
+GQA 모델에서는 query head가 공유하는 KV head로 자동 매핑되어 파일명에 `qhead*`, `kvhead*`가 함께 기록됩니다.
 
 ## 결과 해석 방법
 

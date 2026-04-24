@@ -153,6 +153,72 @@ def to_rope_complex_pairs(tensor: torch.Tensor) -> torch.Tensor:
     return torch.complex(real, imag)
 
 
+def map_query_head_to_key_head(query_head_idx: int, num_query_heads: int, num_key_heads: int) -> int:
+    if num_query_heads == num_key_heads:
+        return query_head_idx
+    if num_query_heads % num_key_heads != 0:
+        raise ValueError(
+            f"Cannot map {num_query_heads} query heads to {num_key_heads} key heads with an integer GQA ratio."
+        )
+    return query_head_idx // (num_query_heads // num_key_heads)
+
+
+def mean_resultant_length(values: torch.Tensor) -> float:
+    if values.numel() == 0:
+        raise ValueError("Cannot compute mean resultant length for an empty complex cloud.")
+
+    values = values.to(torch.complex64).reshape(-1)
+    mean_radius = torch.abs(values).mean()
+    if mean_radius.item() <= 0:
+        return 0.0
+    return float((torch.abs(values.mean()) / mean_radius).item())
+
+
+def qk_band_contribution_scores(
+    q_complex_pairs: torch.Tensor,
+    k_complex_pairs: torch.Tensor,
+    query_head_idx: int,
+) -> tuple[torch.Tensor, int]:
+    if q_complex_pairs.shape[:2] != k_complex_pairs.shape[:2]:
+        raise ValueError(
+            "Q and K complex tensors must share batch/sequence shape, "
+            f"got {tuple(q_complex_pairs.shape[:2])} and {tuple(k_complex_pairs.shape[:2])}."
+        )
+    if q_complex_pairs.shape[-1] != k_complex_pairs.shape[-1]:
+        raise ValueError(
+            f"Q and K must have the same number of RoPE pairs, got {q_complex_pairs.shape[-1]} "
+            f"and {k_complex_pairs.shape[-1]}."
+        )
+
+    num_query_heads = q_complex_pairs.shape[2]
+    num_key_heads = k_complex_pairs.shape[2]
+    key_head_idx = map_query_head_to_key_head(query_head_idx, num_query_heads, num_key_heads)
+
+    q_values = q_complex_pairs[:, :, query_head_idx, :].to(torch.complex64)
+    k_values = k_complex_pairs[:, :, key_head_idx, :].to(torch.complex64)
+    scores = (torch.abs(q_values) * torch.abs(k_values)).mean(dim=(0, 1)).to(torch.float32)
+    return scores, key_head_idx
+
+
+def select_dominant_qk_bands(
+    q_complex_pairs: torch.Tensor,
+    k_complex_pairs: torch.Tensor,
+    query_head_idx: int,
+    top_k: int,
+) -> tuple[list[int], torch.Tensor, int]:
+    if top_k <= 0:
+        raise ValueError(f"top_k must be positive, got {top_k}.")
+
+    scores, key_head_idx = qk_band_contribution_scores(
+        q_complex_pairs=q_complex_pairs,
+        k_complex_pairs=k_complex_pairs,
+        query_head_idx=query_head_idx,
+    )
+    top_count = min(top_k, scores.numel())
+    _, indices = torch.topk(scores, k=top_count, largest=True, sorted=True)
+    return indices.tolist(), scores, key_head_idx
+
+
 def get_layer_rope_inv_freq(layer, num_pairs: int) -> torch.Tensor | None:
     rotary_emb = getattr(getattr(layer, "self_attn", None), "rotary_emb", None)
     inv_freq = getattr(rotary_emb, "inv_freq", None)
@@ -211,6 +277,7 @@ def summarize_complex_cloud(values: torch.Tensor) -> dict[str, Any]:
         "center_real": float(center_real.item()),
         "center_imag": float(center_imag.item()),
         "center_radius": float(torch.sqrt(center_real.square() + center_imag.square()).item()),
+        "mean_resultant_length": mean_resultant_length(values),
         "mean_radius": float(radius.mean().item()),
         "std_radius": float(radius.std(unbiased=False).item()),
         "rms_radius": float(torch.sqrt((radius.square()).mean()).item()),
