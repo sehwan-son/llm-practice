@@ -17,17 +17,30 @@ triattention_qk_distribution/
 ├── analyze_pre_rope_qk.py
 ├── plot_pre_rope_summary.py
 ├── run_analysis.sh
+├── run_figure2a.sh
 ├── qk_rope_analysis/
 │   ├── __init__.py
 │   ├── analysis.py
+│   ├── complex_pairs.py
+│   ├── config.py
+│   ├── constants.py
+│   ├── dominant_bands.py
+│   ├── metrics.py
+│   ├── modeling.py
 │   ├── plotting.py
+│   ├── reporting.py
+│   ├── serialization.py
+│   ├── summaries.py
 │   └── workflow.py
 ├── outputs/
 │   └── README.md
 ├── references/
 │   └── 2604.04921v1.pdf
 ├── models/
-│   └── Qwen3.5-27B-Q8_0.gguf
+│   ├── config.json
+│   ├── model-00001-of-00005.safetensors
+│   ├── ...
+│   └── tokenizer.json
 └── .venv/
 ```
 
@@ -36,9 +49,18 @@ triattention_qk_distribution/
 - [analyze_pre_rope_qk.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/analyze_pre_rope_qk.py:1): 메인 CLI 진입점
 - [plot_pre_rope_summary.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/plot_pre_rope_summary.py:1): 이미 저장된 `summary.json`만 다시 시각화
 - [run_analysis.sh](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/run_analysis.sh:1): 자주 쓰는 기본 옵션으로 실행하는 편의 스크립트
-- [qk_rope_analysis/analysis.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/analysis.py:1): 텐서 캡처, 통계 계산, CSV/JSON 직렬화
+- [qk_rope_analysis/constants.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/constants.py:1): 기본 prompt, RoPE pair 정의, 실험 루트
+- [qk_rope_analysis/config.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/config.py:1): device/dtype/output 경로와 CLI selection 해석
+- [qk_rope_analysis/modeling.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/modeling.py:1): tokenizer/model 로딩, decoder layer 접근, pre-RoPE Q/K hook 캡처
+- [qk_rope_analysis/complex_pairs.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/complex_pairs.py:1): split-half RoPE pair를 complex tensor로 변환하는 기본 유틸
+- [qk_rope_analysis/dominant_bands.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/dominant_bands.py:1): Q/K dominant frequency band 선택과 Figure 2(A) CSV row 생성
+- [qk_rope_analysis/summaries.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/summaries.py:1): head/pair별 분포 통계와 summary JSON 구조 생성
+- [qk_rope_analysis/metrics.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/metrics.py:1): summary JSON을 head/layer CSV row로 평탄화
+- [qk_rope_analysis/serialization.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/serialization.py:1): CSV/JSON 저장
 - [qk_rope_analysis/plotting.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/plotting.py:1): heatmap, trend plot, complex pair plot 생성
-- [qk_rope_analysis/workflow.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/workflow.py:1): 분석 파이프라인 orchestration
+- [qk_rope_analysis/reporting.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/reporting.py:1): CLI 실행 후 콘솔 요약 출력
+- [qk_rope_analysis/workflow.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/workflow.py:1): 위 모듈들을 묶는 분석 파이프라인 orchestration
+- [qk_rope_analysis/analysis.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/analysis.py:1): 기존 import 호환성을 위한 re-export facade
 
 ## 핵심 아이디어
 
@@ -60,9 +82,10 @@ complex_pair[p] = x[p] + i * x[p + head_dim/2]
 
 ### 1. 메인 CLI로 직접 실행
 
+기본 모델 경로는 로컬 `experiments/triattention_qk_distribution/models`입니다.
+
 ```bash
 python experiments/triattention_qk_distribution/analyze_pre_rope_qk.py \
-  --model Qwen/Qwen3-1.7B \
   --tensor both \
   --layers 0 \
   --heads 0 \
@@ -80,14 +103,46 @@ bash experiments/triattention_qk_distribution/run_analysis.sh
 환경변수로 기본값을 덮어쓸 수 있습니다.
 
 ```bash
-MODEL=Qwen/Qwen3-1.7B \
+MODEL=experiments/triattention_qk_distribution/models \
 LAYERS=all \
 HEADS=all \
 OUTPUT_DIR=experiments/triattention_qk_distribution/outputs/full_scan \
 bash experiments/triattention_qk_distribution/run_analysis.sh --plot
 ```
 
-### 3. 저장된 summary만 다시 플롯
+### 3. Figure 2(A) 스타일 플롯만 바로 생성
+
+```bash
+bash experiments/triattention_qk_distribution/run_figure2a.sh \
+  --layers 0 \
+  --heads 0 \
+  --dominant-band-metric center_product \
+  --top-bands 1
+```
+
+`center_product`는 각 RoPE frequency band에서 pre-RoPE 중심값을 구한 뒤
+`|mean(Q_band)| * |mean(K_band)|`가 가장 큰 band를 선택합니다.
+논문에서 Q/K center가 trigonometric series의 frequency contribution을 결정한다고 설명하는 방식에 맞춘 기본값입니다.
+
+자주 바꾸는 옵션은 직접 넘기거나 환경변수로 지정할 수 있습니다.
+
+```bash
+MODEL=experiments/triattention_qk_distribution/models \
+LAYERS=all \
+HEADS=all \
+TOP_BANDS=1 \
+DOMINANT_BAND_METRIC=center_product \
+OUTPUT_DIR=experiments/triattention_qk_distribution/outputs/figure2a_qwen3_8b \
+bash experiments/triattention_qk_distribution/run_figure2a.sh
+```
+
+사용 가능한 옵션은 아래처럼 확인합니다.
+
+```bash
+bash experiments/triattention_qk_distribution/run_figure2a.sh --help
+```
+
+### 4. 저장된 summary만 다시 플롯
 
 ```bash
 python experiments/triattention_qk_distribution/plot_pre_rope_summary.py \
@@ -97,13 +152,14 @@ python experiments/triattention_qk_distribution/plot_pre_rope_summary.py \
 
 ## 주요 옵션
 
-- `--model`: Hugging Face model id 또는 로컬 모델 경로
+- `--model`: Hugging Face model id 또는 로컬 모델 경로. 기본값은 `experiments/triattention_qk_distribution/models`
 - `--tensor {q,k,both}`: 요약/CSV로 분석할 텐서. Figure 2(A) 스타일 plot은 캡처된 Q/K를 함께 사용
 - `--layers 0,1,2` 또는 `--layers all`: 캡처할 레이어
 - `--heads 0,5,10` 또는 `--heads all`: 분석할 헤드
 - `--plot`: 논문 Figure 2(A) 스타일로 dominant band의 pre-RoPE Q/K complex cloud 생성
 - `--plot-mode {figure2a,pair-grid,both}`: 기본 `figure2a`; 기존 pair별 grid가 필요하면 `pair-grid` 또는 `both`
 - `--plot-top-bands N`: Figure 2(A) 스타일 plot에서 표시할 dominant Q/K band 수. 기본값은 논문 그림과 같은 `1`
+- `--dominant-band-metric {center_product,mean_abs_product}`: Figure 2(A) dominant band 선택 기준. 기본 `center_product`는 `|mean(Q_band)| * |mean(K_band)|`, `mean_abs_product`는 `mean(|Q_band| * |K_band|)`
 - `--plot-summary`: layer/head heatmap과 layer trend plot 생성
 - `--export-csv`: `head_metrics.csv`, `layer_metrics.csv` 생성
 - `--save-complex-tensors`: `complex_pairs.pt` 저장
@@ -112,7 +168,7 @@ python experiments/triattention_qk_distribution/plot_pre_rope_summary.py \
 
 기본 출력 경로는 아래 둘 중 하나입니다.
 
-- 메인 CLI 기본값: `experiments/triattention_qk_distribution/outputs/runs/<sanitized-model-name>/`
+- 메인 CLI 기본값: `experiments/triattention_qk_distribution/outputs/runs/local__models/`
 - 편의 스크립트 기본값: `experiments/triattention_qk_distribution/outputs/manual_run/`
 
 생성되는 주요 파일은 다음과 같습니다.
@@ -121,8 +177,9 @@ python experiments/triattention_qk_distribution/plot_pre_rope_summary.py \
 - `summary.json`: 레이어/헤드별 요약 통계
 - `head_metrics.csv`: head 단위 평탄화 지표
 - `layer_metrics.csv`: layer 단위 집계 지표
+- `figure2a_dominant_bands_<metric>.csv`: Figure 2(A) 플롯에서 선택된 layer/query head별 dominant band와 Q/K 중심값
 - `summary_plots/*.png`: heatmap, layer trend
-- `qk_layer*_qhead*_kvhead*_figure2a.png`: dominant band의 pre-RoPE Q/K complex cloud
+- `qk_layer*_qhead*_kvhead*_figure2a_<metric>.png`: dominant band의 pre-RoPE Q/K complex cloud
 - `q_layer*_head*_pair_grid.png`, `k_layer*_head*_pair_grid.png`: `--plot-mode pair-grid` 또는 `both` 사용 시 pair별 complex cloud
 - `*_centroids.png`: `--plot-mode pair-grid` 또는 `both` 사용 시 pair centroid 위치
 - `complex_pairs.pt`: 저장 옵션 사용 시 complex tensor dump

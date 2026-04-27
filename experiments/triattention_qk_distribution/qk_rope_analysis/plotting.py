@@ -4,13 +4,10 @@ from typing import Any
 
 import torch
 
-from .analysis import (
-    PAIR_DEFINITION,
-    flatten_head_metric_rows,
-    mean_resultant_length,
-    select_dominant_qk_bands,
-    summarize_layer_metric_rows,
-)
+from .complex_pairs import mean_resultant_length
+from .constants import PAIR_DEFINITION
+from .dominant_bands import select_dominant_qk_bands
+from .metrics import flatten_head_metric_rows, summarize_layer_metric_rows
 
 
 SUMMARY_METRIC_SPECS = [
@@ -246,6 +243,7 @@ def maybe_plot_qk_dominant_bands(
     plot_max_points: int,
     plot_radius_quantile: float,
     top_bands: int,
+    dominant_band_metric: str,
 ) -> None:
     plt = load_matplotlib_pyplot()
 
@@ -255,6 +253,7 @@ def maybe_plot_qk_dominant_bands(
             k_complex_pairs=k_complex_pairs,
             query_head_idx=query_head_idx,
             top_k=top_bands,
+            metric=dominant_band_metric,
         )
 
         fig, axes = plt.subplots(
@@ -296,17 +295,21 @@ def maybe_plot_qk_dominant_bands(
             ax.set_aspect("equal")
             ax.set_xlabel("Re")
             ax.set_ylabel("Im")
-            ax.set_title(f"band {band_idx} score={band_scores[band_idx].item():.3g}")
+            ax.set_title(f"band {band_idx} {dominant_band_metric}={band_scores[band_idx].item():.3g}")
             ax.grid(alpha=0.2)
             ax.legend(loc="lower left", frameon=False)
 
         fig.suptitle(
-            f"Pre-RoPE Q/K dominant band, layer {layer_idx}, "
+            f"Pre-RoPE Q/K dominant band ({dominant_band_metric}), layer {layer_idx}, "
             f"query head {query_head_idx}, key head {key_head_idx}"
         )
         fig.tight_layout()
         fig.savefig(
-            output_dir / f"qk_layer{layer_idx}_qhead{query_head_idx}_kvhead{key_head_idx}_figure2a.png",
+            output_dir
+            / (
+                f"qk_layer{layer_idx}_qhead{query_head_idx}_kvhead{key_head_idx}"
+                f"_figure2a_{dominant_band_metric}.png"
+            ),
             dpi=180,
         )
         plt.close(fig)

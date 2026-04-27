@@ -4,27 +4,42 @@ from typing import Any
 
 import torch
 
-from .analysis import (
-    PAIRING_MODE,
-    PAIRING_NOTE,
-    build_combined_metric_rows,
+from .complex_pairs import to_rope_complex_pairs
+from .config import (
     build_prompt_text,
-    capture_pre_rope_qk,
     default_output_dir,
-    get_decoder_layers,
-    get_layer_rope_inv_freq,
-    load_model,
-    load_tokenizer,
     parse_index_selection,
     resolve_device,
     resolve_dtype,
     resolve_tensor_names,
-    summarize_complex_pairs,
-    to_rope_complex_pairs,
-    write_csv,
-    write_json,
+)
+from .constants import (
+    PAIRING_MODE,
+    PAIRING_NOTE,
+)
+from .dominant_bands import build_qk_dominant_band_rows
+from .metrics import build_combined_metric_rows
+from .modeling import (
+    capture_pre_rope_qk,
+    get_decoder_layers,
+    get_layer_rope_inv_freq,
+    load_model,
+    load_tokenizer,
 )
 from .plotting import maybe_plot_complex_pairs, maybe_plot_qk_dominant_bands, maybe_plot_summary
+from .reporting import print_analysis_report
+from .serialization import write_csv, write_json
+from .summaries import summarize_complex_pairs
+
+__all__ = [
+    "AnalysisArtifacts",
+    "PlotTask",
+    "RunContext",
+    "analyze_captured_tensors",
+    "export_analysis_artifacts",
+    "prepare_run_context",
+    "print_analysis_report",
+]
 
 
 def should_plot_figure2a(args) -> bool:
@@ -106,7 +121,12 @@ def prepare_run_context(args) -> RunContext:
         "pairing_note": PAIRING_NOTE,
         "plot_mode": args.plot_mode if args.plot else None,
         "plot_top_bands": args.plot_top_bands if args.plot else None,
-        "qk_dominant_band_score": "mean(|Q_band| * |K_band|) across batch and sequence positions",
+        "dominant_band_metric": args.dominant_band_metric if args.plot else None,
+        "dominant_band_metric_note": (
+            "center_product selects max |mean(Q_band)| * |mean(K_band)|, matching the "
+            "pre-RoPE center amplitude used by the paper's trigonometric-series view; "
+            "mean_abs_product selects max mean(|Q_band| * |K_band|)."
+        ),
     }
 
     return RunContext(
@@ -185,6 +205,7 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
         maybe_plot_summary(summary=artifacts.summary, tensor_names=context.tensor_names, output_dir=context.output_dir)
 
     if should_plot_figure2a(args):
+        dominant_band_rows = []
         for layer_idx in context.selected_layers:
             q_complex_pairs = artifacts.complex_tensor_store["q"][layer_idx]
             k_complex_pairs = artifacts.complex_tensor_store["k"][layer_idx]
@@ -192,6 +213,16 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
                 args.heads,
                 q_complex_pairs.shape[2],
                 label="query head",
+            )
+            dominant_band_rows.extend(
+                build_qk_dominant_band_rows(
+                    q_complex_pairs=q_complex_pairs,
+                    k_complex_pairs=k_complex_pairs,
+                    layer_idx=layer_idx,
+                    selected_query_heads=selected_query_heads,
+                    top_bands=args.plot_top_bands,
+                    metric=args.dominant_band_metric,
+                )
             )
             maybe_plot_qk_dominant_bands(
                 q_complex_pairs=q_complex_pairs,
@@ -202,7 +233,12 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
                 plot_max_points=args.plot_max_points,
                 plot_radius_quantile=args.plot_radius_quantile,
                 top_bands=args.plot_top_bands,
+                dominant_band_metric=args.dominant_band_metric,
             )
+        write_csv(
+            context.output_dir / f"figure2a_dominant_bands_{args.dominant_band_metric}.csv",
+            dominant_band_rows,
+        )
 
     if should_plot_pair_grid(args):
         for task in artifacts.plot_tasks:
@@ -217,41 +253,3 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
                 plot_max_points=args.plot_max_points,
                 plot_radius_quantile=args.plot_radius_quantile,
             )
-
-
-def format_dominant_bands(head_summary: dict[str, Any]) -> str:
-    band_dist = head_summary["frequency_band_distribution"]
-    dominant_bands = []
-    for pair_summary in band_dist["dominant_pairs"][:3]:
-        band_label = f"pair {pair_summary['pair_idx']} ({pair_summary['energy_share'] * 100:.1f}%"
-        if "wavelength_tokens" in pair_summary:
-            band_label += f", lambda={pair_summary['wavelength_tokens']:.1f}"
-        dominant_bands.append(f"{band_label})")
-    return ", ".join(dominant_bands)
-
-
-def print_analysis_report(output_dir: Path, tensor_names: list[str], summary: dict[str, Any]) -> None:
-    print(f"Saved artifacts to: {output_dir}")
-    print(f"RoPE pairing note: {PAIRING_NOTE}")
-
-    for tensor_name in tensor_names:
-        print(f"\n[{tensor_name.upper()}] pre-RoPE head distribution")
-        for layer_key, layer_summary in summary[tensor_name].items():
-            for head_key, head_summary in layer_summary["per_head"].items():
-                aggregate = head_summary["aggregate"]
-                raw_dist = head_summary["raw_head_distribution"]
-                band_dist = head_summary["frequency_band_distribution"]
-                print(
-                    f"  layer {layer_key} head {head_key}: "
-                    f"value_std={raw_dist['value']['std']:.4f}, "
-                    f"vector_l2_mean={raw_dist['vector_l2_norm']['mean']:.4f}, "
-                    f"top1_band_share={band_dist['top1_energy_share']:.4f}, "
-                    f"top4_band_share={band_dist['top4_energy_share']:.4f}, "
-                    f"band_entropy={band_dist['normalized_entropy']:.4f}, "
-                    f"center_radius={aggregate['center_radius']:.4f}, "
-                    f"mean_radius={aggregate['mean_radius']:.4f}, "
-                    f"major_axis_std={aggregate['major_axis_std']:.4f}, "
-                    f"minor_axis_std={aggregate['minor_axis_std']:.4f}, "
-                    f"axis_ratio={aggregate['axis_ratio']:.4f}, "
-                    f"dominant_bands=[{format_dominant_bands(head_summary)}]"
-                )

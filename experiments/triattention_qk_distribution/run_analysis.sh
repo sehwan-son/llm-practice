@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT_DIR="$ROOT_DIR/experiments/triattention_qk_distribution"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
-MODEL="${MODEL:-Qwen/Qwen3-1.7B}"
+MODEL="${MODEL:-$SCRIPT_DIR/models}"
 TENSOR="${TENSOR:-both}"
 LAYERS="${LAYERS:-0}"
 HEADS="${HEADS:-0}"

@@ -1,19 +1,27 @@
 import argparse
+from pathlib import Path
 
-from qk_rope_analysis.analysis import DEFAULT_PROMPT, DEFAULT_SYSTEM_PROMPT
+from qk_rope_analysis.constants import DEFAULT_PROMPT, DEFAULT_SYSTEM_PROMPT
+from qk_rope_analysis.reporting import print_analysis_report
 from qk_rope_analysis.workflow import (
     analyze_captured_tensors,
     export_analysis_artifacts,
     prepare_run_context,
-    print_analysis_report,
 )
+
+
+DEFAULT_LOCAL_MODEL = Path(__file__).resolve().parent / "models"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Capture pre-RoPE Q/K tensors and analyze RoPE pairs as complex-plane point clouds."
     )
-    parser.add_argument("--model", required=True, help="Hugging Face model id or local model path.")
+    parser.add_argument(
+        "--model",
+        default=str(DEFAULT_LOCAL_MODEL),
+        help="Hugging Face model id or local model path. Defaults to the local Qwen3-8B files under models/.",
+    )
     parser.add_argument("--prompt", default=DEFAULT_PROMPT, help="Prompt text used for the forward pass.")
     parser.add_argument(
         "--system-prompt",
@@ -101,6 +109,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Number of dominant Q/K RoPE bands to show when plot-mode=figure2a.",
+    )
+    parser.add_argument(
+        "--dominant-band-metric",
+        default="center_product",
+        choices=["center_product", "mean_abs_product"],
+        help=(
+            "How to select the dominant frequency band for Figure2A plots. "
+            "center_product uses |mean(Q_band)| * |mean(K_band)|, the paper-style "
+            "pre-RoPE center amplitude in the trigonometric series. "
+            "mean_abs_product uses mean(|Q_band| * |K_band|)."
+        ),
     )
     parser.add_argument(
         "--plot-radius-quantile",
