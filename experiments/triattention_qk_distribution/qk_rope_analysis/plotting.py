@@ -186,6 +186,97 @@ def plot_qk_top_frequency_bands(
         plt.close(fig)
 
 
+def plot_qk_top1_heads_by_layer(
+    q_complex_pairs: torch.Tensor,
+    k_complex_pairs: torch.Tensor,
+    layer_idx: int,
+    selected_query_heads: list[int],
+    output_dir: Path,
+    plot_max_points: int,
+    plot_radius_quantile: float,
+    inv_freq: torch.Tensor | None = None,
+) -> None:
+    if not selected_query_heads:
+        return
+
+    plt = load_matplotlib_pyplot()
+    plot_dir = output_dir / "top1_heads_by_layer"
+    plot_dir.mkdir(parents=True, exist_ok=True)
+
+    num_pairs = q_complex_pairs.shape[-1]
+    ncols = min(8, len(selected_query_heads))
+    nrows = math.ceil(len(selected_query_heads) / ncols)
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(3.55 * ncols, 3.5 * nrows), squeeze=False)
+
+    for plot_idx, query_head_idx in enumerate(selected_query_heads):
+        ax = axes[plot_idx // ncols][plot_idx % ncols]
+        band_indices, band_scores, key_head_idx = select_dominant_qk_bands(
+            q_complex_pairs=q_complex_pairs,
+            k_complex_pairs=k_complex_pairs,
+            query_head_idx=query_head_idx,
+            top_k=1,
+        )
+        band_idx = band_indices[0]
+        total_score = float(band_scores.sum().item())
+        score = float(band_scores[band_idx].item())
+        score_share = score / total_score if total_score > 0 else 0.0
+
+        q_values = q_complex_pairs[:, :, query_head_idx, band_idx].reshape(-1).to(torch.complex64)
+        k_values = k_complex_pairs[:, :, key_head_idx, band_idx].reshape(-1).to(torch.complex64)
+        q_real, q_imag = maybe_sample_points(q_values, plot_max_points)
+        k_real, k_imag = maybe_sample_points(k_values, plot_max_points)
+        limit = compute_joint_plot_limit(
+            value_sets=[q_values, k_values],
+            plot_radius_quantile=plot_radius_quantile,
+        )
+
+        ax.scatter(q_real, q_imag, s=4, alpha=0.26, linewidths=0, color="tab:blue", label="Q")
+        ax.scatter(k_real, k_imag, s=4, alpha=0.26, linewidths=0, color="tab:orange", label="K")
+        ax.scatter([q_values.mean().real.item()], [q_values.mean().imag.item()], c="tab:blue", s=24, marker="x")
+        ax.scatter([k_values.mean().real.item()], [k_values.mean().imag.item()], c="tab:orange", s=24, marker="x")
+
+        ax.set_title(
+            f"qh={query_head_idx} kh={key_head_idx} f={band_idx}\nC={score:.2g} ({score_share:.1%})",
+            fontsize=8,
+        )
+        ax.text(
+            0.98,
+            0.96,
+            f"RQ={mean_resultant_length(q_values):.2f}\nRK={mean_resultant_length(k_values):.2f}",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=7,
+        )
+        if inv_freq is not None:
+            freq = float(inv_freq[band_idx].item())
+            if freq > 0:
+                ax.text(
+                    0.02,
+                    0.04,
+                    f"lambda={(2 * math.pi) / freq:.1f}",
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="bottom",
+                    fontsize=7,
+                )
+        if plot_idx == 0:
+            ax.legend(loc="lower right", fontsize=7)
+        ax.set_xlim(-limit, limit)
+        ax.set_ylim(-limit, limit)
+        ax.set_aspect("equal")
+        ax.grid(alpha=0.12)
+        ax.tick_params(labelsize=7)
+
+    for empty_idx in range(len(selected_query_heads), nrows * ncols):
+        axes[empty_idx // ncols][empty_idx % ncols].axis("off")
+
+    fig.suptitle(f"Top-1 pre-RoPE Q/K dominant band per query head, layer {layer_idx}")
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(plot_dir / f"qk_layer{layer_idx}_top1_heads.png", dpi=180)
+    plt.close(fig)
+
+
 def plot_qk_frequency_grids(
     q_complex_pairs: torch.Tensor,
     k_complex_pairs: torch.Tensor,

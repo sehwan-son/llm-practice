@@ -2,12 +2,13 @@
 
 Inference 중 attention layer의 pre-RoPE `Q`/`K`를 캡처하고, Qwen 계열 `rotate_half` RoPE pair를 frequency band별 complex cloud로 그리는 실험입니다.
 
-남긴 기능은 아래 네 가지입니다.
+남긴 기능은 아래 다섯 가지입니다.
 
 1. head별 pre-RoPE `Q`/`K` 수집
 2. frequency band별 Q/K complex plot 생성
 3. 논문 Appendix B.7의 dominant frequency score `C_f = E[|q_f|] * E[|k_f|]` 계산
 4. 논문 Figure 2(C)처럼 attention head별 dominant band의 Q/K concentration `R` 분포 plot 생성
+5. layer별로 모든 query head의 top-1 dominant band Q/K complex plot 생성
 
 ## Files
 
@@ -86,6 +87,7 @@ python experiments/triattention_qk_distribution/analyze_pre_rope_qk.py \
 - `concentration_distribution/qk_concentration_r_distribution.png`: Q/K concentration `R` histogram
 - `frequency_grids/qk_layer*_qhead*_kvhead*_frequency_grid.png`: band별 Q/K complex cloud plot
 - `top_frequency_bands/qk_layer*_qhead*_kvhead*_top_bands.png`: dominant top-K band만 모은 Q/K complex cloud plot
+- `top1_heads_by_layer/qk_layer*_top1_heads.png`: layer별 모든 query head의 top-1 dominant band Q/K complex cloud plot
 - `complex_pairs.pt`: `--save-complex-tensors` 사용 시 저장되는 complex Q/K tensor
 
 `dominant_frequency_bands.csv`의 `score`는 `E[|q_f|] * E[|k_f|]`이고, `score_share`는 해당 head 안에서 전체 band score 대비 비율입니다. GQA 모델은 query head를 대응되는 key/value head로 자동 매핑합니다.

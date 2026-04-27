@@ -23,7 +23,12 @@ from .constants import (
 )
 from .dominant_bands import build_qk_concentration_rows, build_qk_dominant_band_rows
 from .modeling import capture_pre_rope_qk, get_decoder_layers, get_layer_rope_inv_freq, load_model, load_tokenizer
-from .plotting import plot_qk_concentration_distribution, plot_qk_frequency_grids, plot_qk_top_frequency_bands
+from .plotting import (
+    plot_qk_concentration_distribution,
+    plot_qk_frequency_grids,
+    plot_qk_top1_heads_by_layer,
+    plot_qk_top_frequency_bands,
+)
 from .serialization import write_csv, write_json
 
 
@@ -156,6 +161,16 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
             plot_max_points=args.plot_max_points,
             plot_radius_quantile=args.plot_radius_quantile,
             top_bands=args.plot_top_bands,
+            inv_freq=inv_freq,
+        )
+        plot_qk_top1_heads_by_layer(
+            q_complex_pairs=q_complex_pairs,
+            k_complex_pairs=k_complex_pairs,
+            layer_idx=layer_idx,
+            selected_query_heads=selected_heads,
+            output_dir=context.output_dir,
+            plot_max_points=args.plot_max_points,
+            plot_radius_quantile=args.plot_radius_quantile,
             inv_freq=inv_freq,
         )
 
