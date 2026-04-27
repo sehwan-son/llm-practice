@@ -14,13 +14,6 @@ def to_rope_complex_pairs(tensor: torch.Tensor) -> torch.Tensor:
     return torch.complex(real, imag)
 
 
-def flatten_complex_cloud(complex_pairs: torch.Tensor, head_idx: int, pair_idx: int | None = None) -> torch.Tensor:
-    head_values = complex_pairs[:, :, head_idx, :]
-    if pair_idx is None:
-        return head_values.reshape(-1)
-    return head_values[:, :, pair_idx].reshape(-1)
-
-
 def mean_resultant_length(values: torch.Tensor) -> float:
     if values.numel() == 0:
         raise ValueError("Cannot compute mean resultant length for an empty complex cloud.")

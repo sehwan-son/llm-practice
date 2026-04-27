@@ -15,7 +15,7 @@ def load_tokenizer(model_name: str, trust_remote_code: bool):
 def load_model(model_name: str, device: str, dtype: torch.dtype, trust_remote_code: bool):
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=dtype,
+        dtype=dtype,
         trust_remote_code=trust_remote_code,
     )
     model.to(device)
