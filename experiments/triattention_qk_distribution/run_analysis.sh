@@ -6,7 +6,7 @@ SCRIPT_DIR="$ROOT_DIR/experiments/triattention_qk_distribution"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 MODEL="${MODEL:-$SCRIPT_DIR/models}"
-DEVICE="${DEVICE:-cuda:1,auto}"
+DEVICE="${DEVICE:-cuda:1,cuda:0}"
 LAYERS="${LAYERS:-0}"
 HEADS="${HEADS:-0}"
 PROMPT="${PROMPT:-한국어로 자기소개를 두 문장으로 해줘.}"

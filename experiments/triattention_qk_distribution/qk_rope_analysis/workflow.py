@@ -21,9 +21,9 @@ from .constants import (
     PAIRING_MODE,
     PAIRING_NOTE,
 )
-from .dominant_bands import build_qk_dominant_band_rows
+from .dominant_bands import build_qk_concentration_rows, build_qk_dominant_band_rows
 from .modeling import capture_pre_rope_qk, get_decoder_layers, get_layer_rope_inv_freq, load_model, load_tokenizer
-from .plotting import plot_qk_frequency_grids, plot_qk_top_frequency_bands
+from .plotting import plot_qk_concentration_distribution, plot_qk_frequency_grids, plot_qk_top_frequency_bands
 from .serialization import write_csv, write_json
 
 
@@ -93,6 +93,8 @@ def prepare_run_context(args) -> RunContext:
         "pairing_note": PAIRING_NOTE,
         "dominant_band_metric": "expected_norm_product",
         "dominant_band_metric_note": "C_f = E[|q_f|] * E[|k_f|], TriAttention Appendix B.7 Eq. 26",
+        "concentration_metric": "mean_resultant_length",
+        "concentration_metric_note": "R_f = |E[x_f]| / E[|x_f|], measured at each head's dominant Q/K frequency band.",
         "plot_top_bands": args.plot_top_bands,
     }
     return RunContext(layers, selected_layers, output_dir, metadata, captured)
@@ -108,6 +110,7 @@ def analyze_captured_tensors(context: RunContext) -> AnalysisArtifacts:
 
 def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArtifacts) -> None:
     dominant_band_rows = []
+    concentration_rows = []
     for layer_idx in context.selected_layers:
         q_complex_pairs = artifacts.complex_pairs["q"][layer_idx]
         k_complex_pairs = artifacts.complex_pairs["k"][layer_idx]
@@ -121,6 +124,15 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
                 layer_idx=layer_idx,
                 selected_query_heads=selected_heads,
                 top_bands=args.plot_top_bands,
+                inv_freq=inv_freq,
+            )
+        )
+        concentration_rows.extend(
+            build_qk_concentration_rows(
+                q_complex_pairs=q_complex_pairs,
+                k_complex_pairs=k_complex_pairs,
+                layer_idx=layer_idx,
+                selected_query_heads=selected_heads,
                 inv_freq=inv_freq,
             )
         )
@@ -147,7 +159,9 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
             inv_freq=inv_freq,
         )
 
+    plot_qk_concentration_distribution(concentration_rows, context.output_dir)
     write_json(context.output_dir / "metadata.json", context.metadata)
     write_csv(context.output_dir / "dominant_frequency_bands.csv", dominant_band_rows)
+    write_csv(context.output_dir / "qk_concentration_by_head.csv", concentration_rows)
     if args.save_complex_tensors:
         torch.save(artifacts.complex_pairs, context.output_dir / "complex_pairs.pt")

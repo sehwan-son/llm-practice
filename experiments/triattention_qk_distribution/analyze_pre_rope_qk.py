@@ -34,8 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--system-prompt", default=DEFAULT_SYSTEM_PROMPT)
     parser.add_argument(
         "--device",
-        default="auto",
-        help='Device or comma-separated preference list: "auto", "cpu", "cuda", "cuda:1,auto", ...',
+        default="cuda:1,cuda:0",
+        help='Device or comma-separated preference list: "cuda:1,cuda:0", "auto", "cpu", "cuda", ...',
     )
     parser.add_argument("--dtype", default="auto", choices=["auto", "float16", "float32", "bfloat16"])
     parser.add_argument("--layers", default="0", help='Comma-separated layer indices, or "all".')

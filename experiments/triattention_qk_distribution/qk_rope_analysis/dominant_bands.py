@@ -101,3 +101,45 @@ def build_qk_dominant_band_rows(
                 row["wavelength_tokens"] = float((2 * torch.pi) / inv_freq[band_idx].item()) if freq > 0 else float("nan")
             rows.append(row)
     return rows
+
+
+def build_qk_concentration_rows(
+    q_complex_pairs: torch.Tensor,
+    k_complex_pairs: torch.Tensor,
+    layer_idx: int,
+    selected_query_heads: list[int],
+    inv_freq: torch.Tensor | None = None,
+) -> list[dict[str, Any]]:
+    rows = []
+    for query_head_idx in selected_query_heads:
+        band_indices, band_scores, key_head_idx = select_dominant_qk_bands(
+            q_complex_pairs=q_complex_pairs,
+            k_complex_pairs=k_complex_pairs,
+            query_head_idx=query_head_idx,
+            top_k=1,
+        )
+        band_idx = band_indices[0]
+        total_score = float(band_scores.sum().item())
+        score = float(band_scores[band_idx].item())
+
+        q_values = q_complex_pairs[:, :, query_head_idx, band_idx].reshape(-1).to(torch.complex64)
+        k_values = k_complex_pairs[:, :, key_head_idx, band_idx].reshape(-1).to(torch.complex64)
+        row = {
+            "layer": layer_idx,
+            "query_head": query_head_idx,
+            "key_head": key_head_idx,
+            "dominant_band_idx": band_idx,
+            "dims": f"{band_idx},{band_idx + q_complex_pairs.shape[-1]}",
+            "score": score,
+            "score_share": score / total_score if total_score > 0 else 0.0,
+            "q_concentration_r": mean_resultant_length(q_values),
+            "k_concentration_r": mean_resultant_length(k_values),
+            "q_expected_norm": float(torch.abs(q_values).mean().item()),
+            "k_expected_norm": float(torch.abs(k_values).mean().item()),
+        }
+        if inv_freq is not None:
+            freq = float(inv_freq[band_idx].item())
+            row["inv_freq"] = freq
+            row["wavelength_tokens"] = float((2 * torch.pi) / inv_freq[band_idx].item()) if freq > 0 else float("nan")
+        rows.append(row)
+    return rows

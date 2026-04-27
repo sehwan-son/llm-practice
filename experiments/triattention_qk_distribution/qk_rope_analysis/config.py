@@ -30,8 +30,8 @@ def _is_cuda_device_usable(device: str) -> bool:
     return True
 
 
-def _resolve_auto_device() -> str:
-    return "cuda" if _is_cuda_device_usable("cuda") else "cpu"
+def _resolve_auto_device() -> str | None:
+    return "cuda:0" if _is_cuda_device_usable("cuda:0") else None
 
 
 def _is_device_usable(device: str) -> bool:
@@ -45,14 +45,17 @@ def _is_device_usable(device: str) -> bool:
 def resolve_device(device_arg: str) -> str:
     candidates = [candidate.strip() for candidate in device_arg.split(",") if candidate.strip()]
     if not candidates:
-        return _resolve_auto_device()
+        resolved = _resolve_auto_device()
+        if resolved is not None:
+            return resolved
+        raise RuntimeError(f"No usable device found from --device {device_arg!r}.")
 
     if len(candidates) == 1 and candidates[0] != "auto":
         return candidates[0]
 
     for candidate in candidates:
         resolved = _resolve_auto_device() if candidate == "auto" else candidate
-        if _is_device_usable(resolved):
+        if resolved is not None and _is_device_usable(resolved):
             return resolved
 
     raise RuntimeError(f"No usable device found from --device {device_arg!r}.")

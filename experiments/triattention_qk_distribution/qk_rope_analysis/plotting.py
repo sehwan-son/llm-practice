@@ -41,6 +41,52 @@ def compute_joint_plot_limit(value_sets: list[torch.Tensor], plot_radius_quantil
     return max(quantile_limit, full_range_limit, 1e-4) * 1.08
 
 
+def concentration_histogram_bins(q_values: list[float], k_values: list[float]) -> list[float]:
+    values = q_values + k_values
+    if not values:
+        return [0.5 + 0.05 * idx for idx in range(11)]
+
+    min_value = min(values)
+    lower = 0.5 if min_value >= 0.5 else max(0.0, math.floor(min_value * 10) / 10)
+    return [lower + (1.0 - lower) * idx / 10 for idx in range(11)]
+
+
+def plot_qk_concentration_distribution(concentration_rows: list[dict[str, Any]], output_dir: Path) -> None:
+    if not concentration_rows:
+        return
+
+    plt = load_matplotlib_pyplot()
+    plot_dir = output_dir / "concentration_distribution"
+    plot_dir.mkdir(parents=True, exist_ok=True)
+
+    q_values = [float(row["q_concentration_r"]) for row in concentration_rows]
+    k_values = [float(row["k_concentration_r"]) for row in concentration_rows]
+    bins = concentration_histogram_bins(q_values, k_values)
+    q_weights = [100.0 / len(q_values)] * len(q_values)
+    k_weights = [100.0 / len(k_values)] * len(k_values)
+
+    fig, ax = plt.subplots(figsize=(5.2, 4.0))
+    ax.hist(
+        [q_values, k_values],
+        bins=bins,
+        weights=[q_weights, k_weights],
+        color=["tab:blue", "tab:orange"],
+        alpha=0.78,
+        rwidth=0.82,
+        label=["Q", "K"],
+    )
+    ax.set_title("Concentration Distribution")
+    ax.set_xlabel("Concentration R")
+    ax.set_ylabel("Percentage (%)")
+    ax.set_xlim(bins[0], 1.0)
+    ax.set_ylim(bottom=0)
+    ax.legend(frameon=False)
+    ax.grid(alpha=0.18)
+    fig.tight_layout()
+    fig.savefig(plot_dir / "qk_concentration_r_distribution.png", dpi=180)
+    plt.close(fig)
+
+
 def plot_qk_top_frequency_bands(
     q_complex_pairs: torch.Tensor,
     k_complex_pairs: torch.Tensor,
