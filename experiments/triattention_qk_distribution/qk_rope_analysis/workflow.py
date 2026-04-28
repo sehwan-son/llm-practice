@@ -22,8 +22,9 @@ from .constants import (
     PAIRING_NOTE,
 )
 from .dominant_bands import build_qk_concentration_rows, build_qk_dominant_band_rows
+from .key_magnitude_plots import plot_pre_rope_key_magnitude_plots
 from .modeling import capture_pre_rope_qk, get_decoder_layers, get_layer_rope_inv_freq, load_model, load_tokenizer
-from .plotting import (
+from .qk_cloud_plots import (
     plot_qk_concentration_distribution,
     plot_qk_frequency_grids,
     plot_qk_top1_heads_by_layer,
@@ -101,6 +102,14 @@ def prepare_run_context(args) -> RunContext:
         "concentration_metric": "mean_resultant_length",
         "concentration_metric_note": "R_f = |E[x_f]| / E[|x_f|], measured at each head's dominant Q/K frequency band.",
         "plot_top_bands": args.plot_top_bands,
+        "key_magnitude_max_tokens": args.key_magnitude_max_tokens,
+        "key_magnitude_max_channels": args.key_magnitude_max_channels,
+        "key_magnitude_color_quantile": args.key_magnitude_color_quantile,
+        "key_magnitude_plot_kind": args.key_magnitude_plot_kind,
+        "key_magnitude_3d_max_tokens": args.key_magnitude_3d_max_tokens,
+        "key_magnitude_3d_max_channels": args.key_magnitude_3d_max_channels,
+        "key_magnitude_3d_elev": args.key_magnitude_3d_elev,
+        "key_magnitude_3d_azim": args.key_magnitude_3d_azim,
     }
     return RunContext(layers, selected_layers, output_dir, metadata, captured)
 
@@ -117,6 +126,19 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
     dominant_band_rows = []
     concentration_rows = []
     for layer_idx in context.selected_layers:
+        plot_pre_rope_key_magnitude_plots(
+            k_tensor=context.captured["k"][layer_idx],
+            layer_idx=layer_idx,
+            output_dir=context.output_dir,
+            max_tokens=args.key_magnitude_max_tokens,
+            max_channels=args.key_magnitude_max_channels,
+            color_quantile=args.key_magnitude_color_quantile,
+            plot_kind=args.key_magnitude_plot_kind,
+            surface_max_tokens=args.key_magnitude_3d_max_tokens,
+            surface_max_channels=args.key_magnitude_3d_max_channels,
+            surface_elev=args.key_magnitude_3d_elev,
+            surface_azim=args.key_magnitude_3d_azim,
+        )
         q_complex_pairs = artifacts.complex_pairs["q"][layer_idx]
         k_complex_pairs = artifacts.complex_pairs["k"][layer_idx]
         inv_freq = get_layer_rope_inv_freq(context.layers[layer_idx], num_pairs=q_complex_pairs.shape[-1])

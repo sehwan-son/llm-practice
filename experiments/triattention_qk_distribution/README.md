@@ -2,24 +2,29 @@
 
 Inference 중 attention layer의 pre-RoPE `Q`/`K`를 캡처하고, Qwen 계열 `rotate_half` RoPE pair를 frequency band별 complex cloud로 그리는 실험입니다.
 
-남긴 기능은 아래 다섯 가지입니다.
+남긴 기능은 아래 여섯 가지입니다.
 
 1. head별 pre-RoPE `Q`/`K` 수집
 2. frequency band별 Q/K complex plot 생성
 3. 논문 Appendix B.7의 dominant frequency score `C_f = E[|q_f|] * E[|k_f|]` 계산
 4. 논문 Figure 2(C)처럼 attention head별 dominant band의 Q/K concentration `R` 분포 plot 생성
 5. layer별로 모든 query head의 top-1 dominant band Q/K complex plot 생성
+6. KVQuant Figure 2의 왼쪽 그림처럼 pre-RoPE Key의 token-by-channel magnitude heatmap/3D surface 생성
 
 ## Files
 
 - [analyze_pre_rope_qk.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/analyze_pre_rope_qk.py:1): CLI entrypoint
 - [run_analysis.sh](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/run_analysis.sh:1): 자주 쓰는 기본값으로 실행하는 wrapper
 - [clean_outputs.sh](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/clean_outputs.sh:1): 기존 output 결과 삭제용 script
+- [qk_rope_analysis/cli.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/cli.py:1): CLI argument 정의
 - [qk_rope_analysis/config.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/config.py:1): device/dtype, prompt loading, AIME2025 auto download
 - [qk_rope_analysis/modeling.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/modeling.py:1): model/tokenizer loading, pre-RoPE Q/K hook
 - [qk_rope_analysis/complex_pairs.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/complex_pairs.py:1): split-half RoPE pair to complex tensor
 - [qk_rope_analysis/dominant_bands.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/dominant_bands.py:1): dominant frequency band scoring
-- [qk_rope_analysis/plotting.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/plotting.py:1): frequency grid plot
+- [qk_rope_analysis/plotting_common.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/plotting_common.py:1): matplotlib loading, sampling, plotting utility
+- [qk_rope_analysis/key_magnitude_plots.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/key_magnitude_plots.py:1): pre-RoPE Key magnitude heatmap/3D surface plot
+- [qk_rope_analysis/qk_cloud_plots.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/qk_cloud_plots.py:1): Q/K frequency cloud, top band, concentration plot
+- [qk_rope_analysis/plotting.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/plotting.py:1): old imports compatibility facade
 - [qk_rope_analysis/workflow.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/workflow.py:1): capture, analysis, export orchestration
 
 ## RoPE Pair
@@ -85,6 +90,8 @@ python experiments/triattention_qk_distribution/analyze_pre_rope_qk.py \
 - `dominant_frequency_bands.csv`: layer/query head별 top-K dominant frequency band
 - `qk_concentration_by_head.csv`: layer/query head별 dominant band의 Q/K concentration `R`
 - `concentration_distribution/qk_concentration_r_distribution.png`: Q/K concentration `R` histogram
+- `pre_rope_key_magnitude/k_layer*_pre_rope_key_magnitude.png`: pre-RoPE Key의 token-by-channel magnitude heatmap
+- `pre_rope_key_magnitude_3d/k_layer*_pre_rope_key_magnitude_3d.png`: 논문 Figure 2 스타일의 pre-RoPE Key magnitude 3D surface
 - `frequency_grids/qk_layer*_qhead*_kvhead*_frequency_grid.png`: band별 Q/K complex cloud plot
 - `top_frequency_bands/qk_layer*_qhead*_kvhead*_top_bands.png`: dominant top-K band만 모은 Q/K complex cloud plot
 - `top1_heads_by_layer/qk_layer*_top1_heads.png`: layer별 모든 query head의 top-1 dominant band Q/K complex cloud plot
@@ -92,6 +99,8 @@ python experiments/triattention_qk_distribution/analyze_pre_rope_qk.py \
 
 `dominant_frequency_bands.csv`의 `score`는 `E[|q_f|] * E[|k_f|]`이고, `score_share`는 해당 head 안에서 전체 band score 대비 비율입니다. GQA 모델은 query head를 대응되는 key/value head로 자동 매핑합니다.
 `qk_concentration_by_head.csv`의 `q_concentration_r`, `k_concentration_r`는 각 head의 dominant band에서 `R_f = |E[x_f]| / E[|x_f|]`로 계산합니다.
+Key magnitude heatmap은 captured pre-RoPE `K`를 `[token, kv_head * head_dim]`으로 펼친 뒤 `abs(K)`를 그립니다. `--key-magnitude-max-tokens`, `--key-magnitude-max-channels`로 큰 입력을 균일 샘플링할 수 있고, `--key-magnitude-color-quantile`은 colorbar 상한을 조절합니다.
+3D surface는 `--key-magnitude-plot-kind surface3d` 또는 기본값 `both`로 생성합니다. `--key-magnitude-3d-max-tokens`, `--key-magnitude-3d-max-channels`는 가독성을 위한 샘플링 크기이며, 3D channel 샘플링은 균일 channel과 평균 magnitude가 큰 outlier channel을 함께 보존합니다. `--key-magnitude-3d-elev`, `--key-magnitude-3d-azim`으로 시야각을 바꿀 수 있습니다.
 각 subplot은 해당 band의 전체 Q/K 좌표 범위에 맞춰 축을 잡으므로, 큰 값이 있어도 점이 잘리지 않습니다.
 
 ## Clean
