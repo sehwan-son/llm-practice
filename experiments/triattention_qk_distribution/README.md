@@ -2,7 +2,7 @@
 
 Inference 중 attention layer의 pre-RoPE `Q`/`K`를 캡처하고, Qwen 계열 `rotate_half` RoPE pair를 frequency band별 complex cloud로 그리는 실험입니다.
 
-남긴 기능은 아래 여섯 가지입니다.
+남긴 기능은 아래 여덟 가지입니다.
 
 1. head별 pre-RoPE `Q`/`K` 수집
 2. frequency band별 Q/K complex plot 생성
@@ -10,6 +10,8 @@ Inference 중 attention layer의 pre-RoPE `Q`/`K`를 캡처하고, Qwen 계열 `
 4. 논문 Figure 2(C)처럼 attention head별 dominant band의 Q/K concentration `R` 분포 plot 생성
 5. layer별로 모든 query head의 top-1 dominant band Q/K complex plot 생성
 6. KVQuant Figure 2의 왼쪽 그림처럼 pre-RoPE Key의 token-by-channel magnitude heatmap/3D surface 생성
+7. band별 pre-RoPE Q/K cloud가 가우시안에 가까운지 보는 histogram/QQ plot 및 정규성 지표 생성
+8. pre-RoPE Q/K 전체 벡터에서 dimension별 평균을 뺀 뒤, 각 dimension 분포가 가우시안에 가까운지 보는 정규성 지표 생성
 
 ## Files
 
@@ -21,10 +23,13 @@ Inference 중 attention layer의 pre-RoPE `Q`/`K`를 캡처하고, Qwen 계열 `
 - [qk_rope_analysis/modeling.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/modeling.py:1): model/tokenizer loading, pre-RoPE Q/K hook
 - [qk_rope_analysis/complex_pairs.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/complex_pairs.py:1): split-half RoPE pair to complex tensor
 - [qk_rope_analysis/dominant_bands.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/dominant_bands.py:1): dominant frequency band scoring
+- [qk_rope_analysis/normality.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/normality.py:1): univariate/complex normality statistics and diagnostic plot primitives
+- [qk_rope_analysis/band_gaussianity.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/band_gaussianity.py:1): frequency band별 Q/K complex cloud Gaussianity diagnostic
+- [qk_rope_analysis/centered_dimension_gaussianity.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/centered_dimension_gaussianity.py:1): 평균 제거 후 dimension별 pre-RoPE Q/K Gaussianity diagnostic
+- [qk_rope_analysis/gaussianity.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/gaussianity.py:1): Gaussianity helper compatibility re-exports
 - [qk_rope_analysis/plotting_common.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/plotting_common.py:1): matplotlib loading, sampling, plotting utility
 - [qk_rope_analysis/key_magnitude_plots.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/key_magnitude_plots.py:1): pre-RoPE Key magnitude heatmap/3D surface plot
 - [qk_rope_analysis/qk_cloud_plots.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/qk_cloud_plots.py:1): Q/K frequency cloud, top band, concentration plot
-- [qk_rope_analysis/plotting.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/plotting.py:1): old imports compatibility facade
 - [qk_rope_analysis/workflow.py](/home/sehwan/llm-practice/experiments/triattention_qk_distribution/qk_rope_analysis/workflow.py:1): capture, analysis, export orchestration
 
 ## RoPE Pair
@@ -82,6 +87,16 @@ python experiments/triattention_qk_distribution/analyze_pre_rope_qk.py \
   --heads 0
 ```
 
+가우시안 패턴만 가볍게 보려면 CSV는 top dominant band만 계산하고, plot도 top-1만 생성할 수 있습니다.
+
+```bash
+python experiments/triattention_qk_distribution/analyze_pre_rope_qk.py \
+  --layers 0 \
+  --heads 0 \
+  --gaussianity-bands top \
+  --gaussianity-plot-top-bands 1
+```
+
 ## Outputs
 
 출력 디렉토리에는 아래 파일만 생성합니다.
@@ -89,7 +104,11 @@ python experiments/triattention_qk_distribution/analyze_pre_rope_qk.py \
 - `metadata.json`: 실행 설정, prompt source, token count, RoPE pairing 정보
 - `dominant_frequency_bands.csv`: layer/query head별 top-K dominant frequency band
 - `qk_concentration_by_head.csv`: layer/query head별 dominant band의 Q/K concentration `R`
+- `qk_gaussianity_by_band.csv`: layer/query head/band/tensor별 real/imag 정규성 및 2D Gaussianity 지표
+- `qk_centered_dimension_gaussianity.csv`: layer/tensor/dimension별, 전체 pre-RoPE 벡터 평균 제거 후 정규성 지표
 - `concentration_distribution/qk_concentration_r_distribution.png`: Q/K concentration `R` histogram
+- `gaussianity_diagnostics/qk_layer*_qhead*_kvhead*_band*_gaussianity.png`: dominant band의 real/imag histogram + fitted Gaussian + QQ plot
+- `centered_dimension_gaussianity/*_layer*_centered_dimension_gaussianity.png`: 평균 제거 후 Jarque-Bera p-value가 낮은 dimension들의 histogram + fitted Gaussian + QQ plot
 - `pre_rope_key_magnitude/k_layer*_pre_rope_key_magnitude.png`: pre-RoPE Key의 token-by-channel magnitude heatmap
 - `pre_rope_key_magnitude_3d/k_layer*_pre_rope_key_magnitude_3d.png`: 논문 Figure 2 스타일의 pre-RoPE Key magnitude 3D surface
 - `frequency_grids/qk_layer*_qhead*_kvhead*_frequency_grid.png`: band별 Q/K complex cloud plot
@@ -99,6 +118,8 @@ python experiments/triattention_qk_distribution/analyze_pre_rope_qk.py \
 
 `dominant_frequency_bands.csv`의 `score`는 `E[|q_f|] * E[|k_f|]`이고, `score_share`는 해당 head 안에서 전체 band score 대비 비율입니다. GQA 모델은 query head를 대응되는 key/value head로 자동 매핑합니다.
 `qk_concentration_by_head.csv`의 `q_concentration_r`, `k_concentration_r`는 각 head의 dominant band에서 `R_f = |E[x_f]| / E[|x_f|]`로 계산합니다.
+`qk_gaussianity_by_band.csv`는 complex cloud `x_f = real + i imag`에 대해 real/imag 각각의 `skewness`, `excess_kurtosis`, `jarque_bera_pvalue`를 기록하고, 2D cloud는 covariance/correlation과 Mahalanobis distance squared가 `chi-square(df=2)`에 얼마나 가까운지 보는 `mahalanobis_chi2_ks`, Mardia kurtosis excess를 기록합니다. `jarque_bera_pvalue`가 너무 작거나 `mahalanobis_chi2_ks`/`mardia_kurtosis_excess`가 크면 Gaussian 가정에서 벗어난 패턴으로 보면 됩니다.
+`qk_centered_dimension_gaussianity.csv`는 captured pre-RoPE `Q`/`K`를 `[batch * token * head, head_dim]`으로 펼친 뒤, 각 dimension의 평균 벡터를 모든 벡터에서 빼고 dimension별 univariate normality를 기록합니다. 여기서 `subtracted_mean`이 제거한 평균이고, `centered_jarque_bera_pvalue`가 너무 작거나 `centered_skewness`/`centered_excess_kurtosis`가 크면 평균 제거 후에도 Gaussian에서 벗어난 차원으로 보면 됩니다.
 Key magnitude heatmap은 captured pre-RoPE `K`를 `[token, kv_head * head_dim]`으로 펼친 뒤 `abs(K)`를 그립니다. `--key-magnitude-max-tokens`, `--key-magnitude-max-channels`로 큰 입력을 균일 샘플링할 수 있고, `--key-magnitude-color-quantile`은 colorbar 상한을 조절합니다.
 3D surface는 `--key-magnitude-plot-kind surface3d` 또는 기본값 `both`로 생성합니다. `--key-magnitude-3d-max-tokens`, `--key-magnitude-3d-max-channels`는 가독성을 위한 샘플링 크기이며, 3D channel 샘플링은 균일 channel과 평균 magnitude가 큰 outlier channel을 함께 보존합니다. `--key-magnitude-3d-elev`, `--key-magnitude-3d-azim`으로 시야각을 바꿀 수 있습니다.
 각 subplot은 해당 band의 전체 Q/K 좌표 범위에 맞춰 축을 잡으므로, 큰 값이 있어도 점이 잘리지 않습니다.

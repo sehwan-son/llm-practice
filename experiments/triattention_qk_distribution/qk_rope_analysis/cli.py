@@ -53,6 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Axis limit coordinate quantile. Plots still expand to include the full coordinate range.",
     )
     add_key_magnitude_plot_args(parser)
+    add_gaussianity_args(parser)
     parser.add_argument("--save-complex-tensors", action="store_true", help="Save complex_pairs.pt.")
     return parser
 
@@ -105,4 +106,40 @@ def add_key_magnitude_plot_args(parser: argparse.ArgumentParser) -> None:
         type=float,
         default=-62.0,
         help="Azimuth angle for 3D key magnitude surfaces.",
+    )
+
+
+def add_gaussianity_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--gaussianity-bands",
+        default="all",
+        choices=["all", "top", "none"],
+        help="Which frequency bands to include in qk_gaussianity_by_band.csv.",
+    )
+    parser.add_argument(
+        "--gaussianity-plot-top-bands",
+        type=int,
+        default=2,
+        help="Number of dominant bands per selected head to plot with Gaussian histogram/QQ diagnostics. Use 0 to skip.",
+    )
+    parser.add_argument(
+        "--gaussianity-max-points",
+        type=int,
+        default=2000,
+        help="Max finite samples per component in Gaussianity diagnostic plots. Use 0 for all points.",
+    )
+    parser.add_argument(
+        "--gaussianity-hist-bins",
+        type=int,
+        default=50,
+        help="Histogram bins for Gaussianity diagnostic plots.",
+    )
+    parser.add_argument(
+        "--centered-dim-gaussianity-plot-dims",
+        type=int,
+        default=8,
+        help=(
+            "Number of mean-centered pre-RoPE Q/K dimensions with the smallest Jarque-Bera p-values "
+            "to plot per tensor/layer. Use 0 to skip these plots."
+        ),
     )

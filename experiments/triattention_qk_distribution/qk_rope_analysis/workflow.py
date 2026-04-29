@@ -21,6 +21,11 @@ from .constants import (
     PAIRING_MODE,
     PAIRING_NOTE,
 )
+from .band_gaussianity import build_qk_gaussianity_rows, plot_qk_gaussianity_diagnostics
+from .centered_dimension_gaussianity import (
+    build_centered_dimension_gaussianity_rows,
+    plot_centered_dimension_gaussianity_diagnostics,
+)
 from .dominant_bands import build_qk_concentration_rows, build_qk_dominant_band_rows
 from .key_magnitude_plots import plot_pre_rope_key_magnitude_plots
 from .modeling import capture_pre_rope_qk, get_decoder_layers, get_layer_rope_inv_freq, load_model, load_tokenizer
@@ -110,6 +115,21 @@ def prepare_run_context(args) -> RunContext:
         "key_magnitude_3d_max_channels": args.key_magnitude_3d_max_channels,
         "key_magnitude_3d_elev": args.key_magnitude_3d_elev,
         "key_magnitude_3d_azim": args.key_magnitude_3d_azim,
+        "gaussianity_bands": args.gaussianity_bands,
+        "gaussianity_plot_top_bands": args.gaussianity_plot_top_bands,
+        "gaussianity_max_points": args.gaussianity_max_points,
+        "gaussianity_hist_bins": args.gaussianity_hist_bins,
+        "centered_dim_gaussianity_plot_dims": args.centered_dim_gaussianity_plot_dims,
+        "gaussianity_metric_note": (
+            "Per Q/K complex cloud, real/imag components are checked with skewness, excess kurtosis, "
+            "Jarque-Bera, and fitted Gaussian QQ plots. The 2D cloud is checked with covariance, "
+            "Mahalanobis distance squared vs chi-square(df=2), and Mardia kurtosis excess."
+        ),
+        "centered_dim_gaussianity_metric_note": (
+            "For raw captured pre-RoPE Q/K tensors, vectors are flattened over batch, token, and head. "
+            "A per-dimension mean vector is subtracted from all vectors, then each centered dimension is "
+            "checked with skewness, excess kurtosis, Jarque-Bera, and fitted Gaussian QQ plots."
+        ),
     }
     return RunContext(layers, selected_layers, output_dir, metadata, captured)
 
@@ -125,6 +145,8 @@ def analyze_captured_tensors(context: RunContext) -> AnalysisArtifacts:
 def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArtifacts) -> None:
     dominant_band_rows = []
     concentration_rows = []
+    gaussianity_rows = []
+    centered_dimension_gaussianity_rows = []
     for layer_idx in context.selected_layers:
         plot_pre_rope_key_magnitude_plots(
             k_tensor=context.captured["k"][layer_idx],
@@ -138,6 +160,22 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
             surface_max_channels=args.key_magnitude_3d_max_channels,
             surface_elev=args.key_magnitude_3d_elev,
             surface_azim=args.key_magnitude_3d_azim,
+        )
+        centered_dimension_gaussianity_rows.extend(
+            build_centered_dimension_gaussianity_rows(
+                q_tensor=context.captured["q"][layer_idx],
+                k_tensor=context.captured["k"][layer_idx],
+                layer_idx=layer_idx,
+            )
+        )
+        plot_centered_dimension_gaussianity_diagnostics(
+            q_tensor=context.captured["q"][layer_idx],
+            k_tensor=context.captured["k"][layer_idx],
+            layer_idx=layer_idx,
+            output_dir=context.output_dir,
+            plot_top_dims=args.centered_dim_gaussianity_plot_dims,
+            max_points=args.gaussianity_max_points,
+            hist_bins=args.gaussianity_hist_bins,
         )
         q_complex_pairs = artifacts.complex_pairs["q"][layer_idx]
         k_complex_pairs = artifacts.complex_pairs["k"][layer_idx]
@@ -160,6 +198,17 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
                 k_complex_pairs=k_complex_pairs,
                 layer_idx=layer_idx,
                 selected_query_heads=selected_heads,
+                inv_freq=inv_freq,
+            )
+        )
+        gaussianity_rows.extend(
+            build_qk_gaussianity_rows(
+                q_complex_pairs=q_complex_pairs,
+                k_complex_pairs=k_complex_pairs,
+                layer_idx=layer_idx,
+                selected_query_heads=selected_heads,
+                band_scope=args.gaussianity_bands,
+                top_bands=max(args.plot_top_bands, args.gaussianity_plot_top_bands),
                 inv_freq=inv_freq,
             )
         )
@@ -195,10 +244,22 @@ def export_analysis_artifacts(args, context: RunContext, artifacts: AnalysisArti
             plot_radius_quantile=args.plot_radius_quantile,
             inv_freq=inv_freq,
         )
+        plot_qk_gaussianity_diagnostics(
+            q_complex_pairs=q_complex_pairs,
+            k_complex_pairs=k_complex_pairs,
+            layer_idx=layer_idx,
+            selected_query_heads=selected_heads,
+            output_dir=context.output_dir,
+            plot_top_bands=args.gaussianity_plot_top_bands,
+            max_points=args.gaussianity_max_points,
+            hist_bins=args.gaussianity_hist_bins,
+        )
 
     plot_qk_concentration_distribution(concentration_rows, context.output_dir)
     write_json(context.output_dir / "metadata.json", context.metadata)
     write_csv(context.output_dir / "dominant_frequency_bands.csv", dominant_band_rows)
     write_csv(context.output_dir / "qk_concentration_by_head.csv", concentration_rows)
+    write_csv(context.output_dir / "qk_gaussianity_by_band.csv", gaussianity_rows)
+    write_csv(context.output_dir / "qk_centered_dimension_gaussianity.csv", centered_dimension_gaussianity_rows)
     if args.save_complex_tensors:
         torch.save(artifacts.complex_pairs, context.output_dir / "complex_pairs.pt")
